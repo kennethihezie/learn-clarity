@@ -139,14 +139,18 @@
 ;; Lists are sequences of fixed length that contain another type. 
 ;; Since types cannot mix, a list can only contain items of the same type. 
 ;; Take this list of signed integers for example:
-(list 1 2 3 4 6)
-(list "Hello" "HO" "hi")
-(list u2 u5 u4)
+;; defining a list variable
+(define-data-var array (list 5 int) (list 1 2))
+;; (list 1 2 3 4 6)
+;; (list "Hello" "HO" "hi")
+;; (list u2 u5 u4)
+
 ;; You can iterate over a list using the map or fold functions.
 ;; map applies an input function to each element and returns a new list with the updated values.
 ;; The not function inverts a boolean (true becomes false and false becomes true). 
 ;; We can thus invert a list of booleans like this:
 (map not (list true true false true)) ;;outputs [false, false, true, true]
+(map + (list 1 2))
 
 ;; fold applies an input function to each element of the 
 ;; list and the output value of the previous application. 
@@ -183,6 +187,8 @@
 ;; of that type. The optional type is very powerful and the tooling 
 ;; will perform checks to make sure they are handled properly in the code.
 ;; Let us look at a few examples.
+;; defining an optional variable
+(define-data-var my-optional (optional int) (some 0))
 
 ;; Wrapping a uint:
 (some u5)
@@ -204,7 +210,8 @@
 ;; to retrieve an element at an index larger than the 
 ;; total size of the list. We see that it results in a none value.
 (element-at (list 4 8 15 16 23 42) u5000) ;; outputs none
-
+;; setting my-optional variable
+(var-set my-optional (element-at (list 4 8 15 16 23 42) u5000))
 ;; When writing smart contracts, the developer must handle cases 
 ;; where (some ...) is returned differently from when none is returned.
 ;; In order to access the value contained within an optional, 
@@ -220,6 +227,9 @@
 ;; Each field has its own type, making it very useful to pass 
 ;; along structured data in one go. Tuples have their own 
 ;; special formatting and use curly braces.
+;; defining a tuple variable
+(define-data-var my-tuple (tuple (user-id int)) (tuple (user-id 0)))
+
 ;; you can use this style
 (tuple 
   (id u4) ;; a uiint
@@ -253,9 +263,10 @@
 ;; effects in the chapter on functions.
 ;; A response takes the concrete form of either (ok ...) or (err ...). 
 ;; Wrapping a value in a concrete response is straightforward:
+;; defining a response variable
+(define-data-var my-response (response bool uint) (ok true))
 
 (ok true)
-
 ;; Developers usually come up with their own rules to indicate 
 ;; error status. You could for example use unsigned integers 
 ;; to represent a specific error code.
@@ -266,9 +277,104 @@
 (unwrap-panic (ok true))
 ;; Although not necessary, private functions and read-only functions may also return a response type.
 
+;; KEYWORDS
+;; true
+;; false
+;; none
+;; block-height: Reflects the current block height of the Stacks blockchain as an unsigned integer. If we imagine the chain tip to be at height 5, we can read that number at any point in our code.
+;; burn-block-height: Reflects the current block height of the underlying burn blockchain (in this case Bitcoin) as an unsigned integer.
+;; tx-sender: Contains the principal that sent the transaction. 
+;; It can be used to validate the principal that is calling into 
+;; a public function. Note that it is possible for the tx-sender 
+;; to be a contract principal if the special function as-contract was 
+;; used to shift the sending context. (as-contract tx-sender)
+;; contract-caller: Contains the principal that called the function. 
+;; It can be a standard principal or contract principal. If the contract 
+;; is called via a signed transaction directly, then tx-sender 
+;; and contract-caller will be equal. If the contract calls another 
+;; contract in turn, then contract-caller will be equal to the 
+;; previous contract in the chain.
+
+
+;; CONSTANTS
+;;Constants are data members that cannot be changed once 
+;; they are defined (hence the name constant). 
+;; They are useful to define concrete configuration values, 
+;; error codes, and more. The general form to define a constant 
+;; looks like this: (define-constant constant-name expression)
+
 ;; defining a constant variable
 (define-constant constant 0)
+(define-constant my-constant "this is a constant value")
+(define-constant my-second-constant (concat my-constant "that depends on another"))
+(define-constant my-list (list 1 2))
+;; A common pattern that you will come across is that of 
+;;defining a constant to store the principal that deployed 
+;; the contract:
+(define-constant contract-owner tx-sender)
+;; Constants are also useful to give return values and errors meaningful names.
+(define-constant err-something-failed (err u500)) ;; And then use err-something-failed instead of (err u100) later in the code.
 
+;; MAPS
+;; Data maps are so-called hash tables. It is a kind of 
+;; data structure that allows you to map keys to specific 
+;; values. Unlike tuple keys, data map keys are not 
+;; hard-coded names. They are represented as a specific 
+;; concrete values. You should use maps if you want to relate 
+;; data to other data. (define-map map-name key-type value-type)
+;; defining a map variable
+(define-map my-map principal uint)
+;; setting a map
+(map-set my-map tx-sender u500)
+;; retrive balance
+(map-get? my-map tx-sender) ;; outputs (some u500)
+
+;;Let us take a look at how we can use a map to store and
+;; read basic orders by ID. We will use an unsigned integer
+;; for the key type and a tuple for the value type. 
+;; These fictional orders will hold a principal and an amount.
+(define-map orders uint (tuple (maker principal) (amount uint)))
+;; set two orders
+(map-set orders u0 (tuple (maker tx-sender) (amount u50)))
+(map-set orders u1 (tuple (maker tx-sender) (amount u120)))
+;; retrive order with ID u1
+(map-get? orders u1) 
+;; Set and insert
+;; The map-set function will overwrite existing values 
+;; whilst map-insert will do nothing and return false 
+;; if the specified key already exists. Entries may also be 
+;; deleted using map-delete.
+(define-map scores principal uint)
+;; insert a value
+(map-insert scores tx-sender u100)
+;; This second insert will do nothing because the key already exists.
+(map-insert scores tx-sender u200)
+;; The score for tx-sender will be u100.
+(print (map-get? scores tx-sender))
+;; Delete the entry for tx-sender.
+(map-delete scores tx-sender)
+;; Will return none because the entry got deleted.
+(print (map-get? scores tx-sender))
+
+;; Reading from a map might fail
+;; What we have seen from the previous examples 
+;; is that map-get? returns an optional type. 
+;; The reason is that reading from a map fails if the 
+;; provided key does not exist. When that happens, 
+;; map-get? returns a none. It also means that if 
+;; you wish to use the retrieved value, you will 
+;; have to unwrap it in most cases
+
+;; A map that creates a string-ascii => uint relation.
+(define-map names (string-ascii 34) principal)
+;; Point the name "Clarity" to the tx-sender.
+(map-set names "Clarity" tx-sender)
+;; Retrieve the principal related to the name "Clarity".
+(map-get? names "Clarity")
+;; Retrieve the principal for a key that does not exist. It will return `none`.
+(map-get? names "collins")
+;; Unwrap a value:
+(unwrap-panic (map-get? names "Clarity"))
 
 ;;defining a public function
 (define-public (hello-world) (begin (print "Hello World") (ok "Success")))
@@ -305,6 +411,17 @@
 ;; Primitives are the basic building blocks for the language. They include numbers and boolean values (true and false).
 ;; Sequences hold multiple values in order.
 ;; Composites are complex types that are made up of other types.
+
+;; Smart contracts have their own private storage space. 
+;; You can define different types of data members to use 
+;; throughout your smart contract. These data members are committed 
+;; to the chain and thus persist across transactions. For example, 
+;; a first transaction can change a data member after which a second 
+;; one reads the updated value. All data members have to be 
+;; defined on the top level of the contract and are identified by a 
+;; unique name. No new data members can be introduced after the 
+;; contract has been deployed. Clarity permits three different
+;; kinds of storage: constants, variables, and data maps.
 
 ;; In Clarity, we have public, private, and read only functions. 
 ;; Public allow you to modify chain state and can be called from 
