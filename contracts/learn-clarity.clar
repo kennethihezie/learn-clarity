@@ -61,6 +61,9 @@
 (/ 4 2)
 ;; there are no decimal points. It is something to keep in mind when writing your code
 
+;; modulo
+(mod 2 5)
+
 ;; Booleans
 ;; bool, short for boolean. A boolean value is either true or false. 
 ;; They are used to check if a certain condition is met or unmet (true or false). 
@@ -314,7 +317,6 @@
 (define-constant contract-owner tx-sender)
 ;; Constants are also useful to give return values and errors meaningful names.
 (define-constant err-something-failed (err u500)) ;; And then use err-something-failed instead of (err u100) later in the code.
-
 ;; MAPS
 ;; Data maps are so-called hash tables. It is a kind of 
 ;; data structure that allows you to map keys to specific 
@@ -376,36 +378,181 @@
 ;; Unwrap a value:
 (unwrap-panic (map-get? names "Clarity"))
 
-;;defining a public function
-(define-public (hello-world) (begin (print "Hello World") (ok "Success")))
+;; FUNCTIONS
+;; Public Functions: can be called externally. That means that 
+;; another standard principal or contract principal can invoke 
+;; the function. Public function calls require sending a transaction. 
+;; The sender thus need to pay transaction fees. All public function must return a response type.
+;; Public functions must return a response type value. 
+;; If the function returns an ok type, then the function call is 
+;; considered valid, and any changes made to the blockchain state 
+;; will materialise. It means that state changes such as 
+;; updating variables or transferring tokens will only be committed 
+;; to the chain if the contract call that triggered these changes 
+;; returns an ok
+;; defining a public function
+(define-public (hello-world) (ok "success"))
 
+(define-public (add-number (a int) (b int)) (ok (* a b)))
+
+(define-public (print-twice (first (string-ascii 20)) (second (string-utf8 20))) 
+   (begin 
+      (print first)
+      (print second)
+      (ok true)
+   )
+)
+
+(define-data-var  even-values uint u0)
+(define-public (count-even (number uint)) 
+   (begin  
+      ;; increment the "event-values" variable by one.
+      (var-set even-values (+ (var-get even-values) u1))
+      ;; check if the input number is even (number mod 2 equals 0).
+      (if (is-eq (mod number u2) u0)
+        (ok "the number is even")
+        ;; when an err response is called  the entire public 
+        ;; function call is rolled back or reverted as soon as 
+        ;; it returns an err value. It is as if the function call
+        ;; never happened! It therefore does not matter if you 
+        ;; update the variable at the start or end of the function.
+        (err "the number is uneven")
+      )
+   )
+)
+(print (count-even u4))
+(print (count-even u7))
+(print (var-get even-values))
+;; Private Functions: can only be called by the current 
+;; contract there is no outside access. 
+;; (Although the source code can obviously still be inspected
+;; by reading the blockchain.) They cannot be called from other 
+;; smart contracts, nor can they be called directly by sending a 
+;; transaction. Private functions are useful to create utility 
+;; or helper functions to cut down on code repetition
+;; Private functions may return any type, including responses, 
+;; although returning an ok or an err will have no effect on 
+;; the materialised state of the chain.
 ;; defining a private function
 (define-private (hello) (print "hello"))
+;; The contract bellow allows only the contract owner to update 
+;; the recipients map via two public functions. Instead of having 
+;; to repeat the tx-sender check, it is abstracted away to its 
+;; own private function called is-valid-caller.
+(define-constant contract-owner-x tx-sender)
+(define-constant err-invalid-caller (err u1))
+(define-map recipients principal uint)
 
-(define-public (add-number (number int))
-   ;; all function body can contain a single expression
-   ;; So this let function is a way of wrapping 
-   ;; a multi-step function into a single argument.
-   (let 
-        (
-          ;; Sets a variable that only exists in the context of 
-          ;; this particular function. So here we are saying, 
-          ;; create a new variable called current-count and set 
-          ;; it equal to the value of count  
-          (current-count (var-get count))
-        ) 
-        ;; here we are setting the value of our count variable 
-        ;; to 1 plus whatever number we passed in. 
-        ;; The + is just another call to a function where 
-        ;; the parameters are the numbers we want to add.
-        (var-set count (+ 1 number))
-        ;; here we are returning the new value of count 
-        ;; with our ok response, indicating that the function 
-        ;; completed successfully.
-        (print (var-get count))
-        (ok (var-get count))
-    )
+(define-private (is-valid-caller) 
+  (is-eq tx-sender contract-owner-x)
 )
+
+(define-public (add-recipient (recipient principal) (amount uint)) 
+  (if (is-valid-caller)
+    (ok (map-set recipients recipient amount))
+    err-invalid-caller
+  )
+)
+
+(define-public (delete-recipient (recipient principal)) 
+  (if (is-valid-caller ) 
+     (ok (map-delete recipients recipient))
+     err-invalid-caller
+  )
+)
+(print (add-recipient 'ST1J4G6RR643BCG8G8SR6M2D9Z9KXT2NJDRK3FBTK u500))
+(print (delete-recipient 'ST1J4G6RR643BCG8G8SR6M2D9Z9KXT2NJDRK3FBTK))
+
+
+;; Read only functions: can be called externally but may not change 
+;; the chain state. Sending a transaction is not necessary to 
+;; call a read-only function
+;; defining a read only function
+(define-read-only (my-read-only-func) (print "my read only func"))
+(define-read-only (addition (a int) (b int)) 
+  (+ a b)
+)
+(define-data-var counting uint u2)
+(define-read-only (get-counter-value) 
+  (var-get counting)
+)
+;; The expressions that define functions take exactly 
+;; one expression for the function body. The function body 
+;; is what is executed when the function is called. 
+;; If the body is limited to one expression only, then how 
+;; can you create more complex functions that require multiple 
+;; expression? For this, a special form exists. 
+;; The variadic begin function takes an arbitrary amount of 
+;; inputs and will return the result of the last expression.
+(begin 2 3 4) ;; outputs 4
+
+;; CONTROL FLOW AND ERROR HANDLING
+;; The first print expression is evaluated first, 
+;; the second after that, and so on. But there are a few 
+;; functions that actually influence the control flow. 
+;; These are aptly named control flow functions. 
+;; If understanding responses is key to becoming 
+;; a successful smart contract developer, then understanding 
+;; control functions is key to becoming a great smart contract developer. 
+;; The names of the control flow functions are: asserts!, try!, unwrap!, unwrap-err!, unwrap-panic, and unwrap-err-panic.
+;; Another useful thing to understand with control flow 
+;; functions is the difference between functions 
+;; that end in an exclamation point (such as unwrap!), 
+;; and those that do not (such as unwrap-panic). 
+;; Those that end in an exclamation point allow for arbitrary 
+;; early returns from a function. Those that do not 
+;; terminate execution altogether and throw a runtime error.
+
+;; asserts!
+;; The asserts! function takes two parameters, 
+;; the first being a boolean expression and the second a 
+;; so-called throw value. If the boolean expression evaluates 
+;; to true, then asserts! returns true and execution continues 
+;; as expected, but if the expression evaluates to false then 
+;; asserts! will return the throw value and exit the current 
+;; control flow. That sounds complicated, so let us take a 
+;; look at some examples. Keep in mind that the basic form
+;; for asserts! as described looks like this:
+;; (asserts! boolean-expression throw-value)
+(asserts! true (err "failed"))
+(asserts! false (err "falied"))
+;;  Let us make it more clear with a test function. 
+;; The test function takes a boolean input value and asserts 
+;; its truthiness. For a throw value we will use an err
+;; and the final expression will return an ok.
+(define-public (assert-example (value bool)) 
+   (begin 
+      (asserts! value (err "the assertion failed"))
+      (ok "end of the function")
+   )
+)
+(print (assert-example true))
+(print (assert-example false))
+
+(define-public (add-recipient-assert-example (recipient principal) (amount uint)) 
+  (begin  
+    (asserts! (is-valid-caller) err-invalid-caller)
+    (ok (map-set recipients recipient amount))
+  )
+)
+
+;; try!
+;; The try! function takes an optional or a response type 
+;; and will attempt to unwrap it. Unwrapping is the act of 
+;; extracting the inner value and returning it. 
+;; Take the following example:
+(try! (some "wrapped string"))
+;; try! can only successfully unwrap some and ok values. 
+;; If it receives a none or an err, it will return the input 
+;; value and exit the current control flow. In other words:
+(define-public (try-example (input (response uint uint))) 
+  (begin 
+    (try! input)
+    (ok "end of the function")
+  )
+)
+(print (try-example (ok u1)))
+(print (try-example (err u2)))
 
 ;; in clarity types fall in three categories: primitives, sequences, composites
 ;; Primitives are the basic building blocks for the language. They include numbers and boolean values (true and false).
