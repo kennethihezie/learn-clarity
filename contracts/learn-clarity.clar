@@ -396,7 +396,7 @@
 (define-public (add-number (a int) (b int)) (ok (* a b)))
 
 (define-public (print-twice (first (string-ascii 20)) (second (string-utf8 20))) 
-   (begin 
+   (begin
       (print first)
       (print second)
       (ok true)
@@ -575,3 +575,15 @@
 ;; anywhere, private do the same except they can only be called 
 ;; from within the contract, and read only will fail if they 
 ;; attempt to modify state.
+
+
+(define-public (asserting-x (name-x (buff 4))) 
+  (begin 
+    (asserts! true (err "Failed"))
+    (ok "end")
+  )
+)
+
+(define-public (write-messge (message (string-utf8 50))) 
+  (ok message)
+)
